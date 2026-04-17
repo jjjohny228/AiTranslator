@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from app.core.config import get_settings
+from app.services.languages import to_iso_639_1
 from app.services.openai_client import get_openai_client
 
 
@@ -16,7 +17,6 @@ class TranscriptionService:
         response = await self.client.audio.transcriptions.create(
             model=self.model,
             file=file_obj,
-            language=None if not language or language == "auto" else language,
+            language=to_iso_639_1(language),
         )
         return response.text.strip()
-

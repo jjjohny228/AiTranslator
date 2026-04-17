@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioControls } from "./components/AudioControls";
+import { AudioPlayer } from "./components/AudioPlayer";
 import { CondomBurst } from "./components/CondomBurst";
+import { HeroModel } from "./components/HeroModel";
 import { LanguageSelect } from "./components/LanguageSelect";
-import { ModePicker } from "./components/ModePicker";
 import { RoomQrCode } from "./components/RoomQrCode";
 import { VoiceStudio } from "./components/VoiceStudio";
 import {
@@ -354,13 +355,6 @@ export default function App() {
             ) : null}
           </div>
 
-          {message.kind === "audio" ? (
-            <div className="voice-badge">
-              <span className="voice-wave" />
-              <span>{message.attachment_name ?? "Voice note"}</span>
-            </div>
-          ) : null}
-
           <div className="message-copy">
             <div className="copy-block">
               <span className="copy-label">Original</span>
@@ -372,7 +366,7 @@ export default function App() {
             </div>
           </div>
 
-          {message.audioUrl ? <audio controls src={message.audioUrl} className="audio-player" /> : null}
+          {message.audioUrl ? <AudioPlayer src={message.audioUrl} /> : null}
         </div>
       </article>
     );
@@ -425,26 +419,15 @@ export default function App() {
       <>
         <CondomBurst />
         <main className="setup-shell">
-          <section className="setup-hero">
-            <div className="eyebrow">Secure access</div>
-            <h1>Sign in before entering the translation room.</h1>
-            <p className="subtitle">
-              Authentication unlocks profile settings, custom voice training, and personal voice playback inside shared rooms.
-            </p>
+          <section className="setup-hero setup-hero--centered">
+            <div className="hero-brand">
+              <div className="hero-brand__title">SMASH</div>
+              <div className="hero-brand__subtitle">TRANSLATOR</div>
+            </div>
+            <HeroModel />
           </section>
 
           <section className="setup-card auth-card">
-            <div className="setup-controls">
-              <div>
-                <span className="field-label">Account mode</span>
-                <ModePicker
-                  value={authMode === "login" ? "balanced" : "natural"}
-                  onChange={(value) => setAuthMode(value === "balanced" ? "login" : "register")}
-                  compact
-                />
-              </div>
-            </div>
-
             {authMode === "register" ? (
               <label className="field">
                 <span>Display name</span>
@@ -513,14 +496,13 @@ export default function App() {
       <CondomBurst />
       {!room ? (
         <main className="setup-shell">
-          <section className="setup-hero">
-            <div className="eyebrow">Shared translation room</div>
-            <h1>Create a bilingual room and invite anyone by link or QR.</h1>
-            <p className="subtitle">
-              Perfect for two people speaking different languages. Each message is translated and
-              saved in a shared chat that others can join instantly.
-            </p>
-            <div className="header-actions">
+          <section className="setup-hero setup-hero--centered">
+            <div className="hero-brand">
+              <div className="hero-brand__title">SMASH</div>
+              <div className="hero-brand__subtitle">TRANSLATOR</div>
+            </div>
+            <HeroModel />
+            <div className="header-actions header-actions--centered">
               <button type="button" className="secondary" onClick={() => setShowProfile((current) => !current)}>
                 {showProfile ? "Hide profile" : "Profile"}
               </button>
@@ -589,10 +571,6 @@ export default function App() {
             </div>
 
             <div className="setup-controls">
-              <div>
-                <span className="field-label">Translation style</span>
-                <ModePicker value={mode} onChange={setMode} />
-              </div>
               <div className="toggle-stack">
                 <label className="checkbox checkbox--inline">
                   <input
@@ -634,14 +612,22 @@ export default function App() {
               </p>
             </div>
             <div className="header-actions">
-              <button type="button" className="secondary" onClick={() => setShowProfile((current) => !current)}>
-                {showProfile ? "Hide profile" : "Profile"}
-              </button>
               <button type="button" className="secondary" onClick={copyRoomLink}>
                 Copy host link
               </button>
               <button type="button" className="secondary" onClick={() => navigator.clipboard?.writeText(partnerInviteLink).catch(() => {})}>
                 Copy invite link
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  window.history.replaceState({}, "", window.location.pathname);
+                  setRoom(null);
+                  setError("");
+                }}
+              >
+                Leave room
               </button>
               <button
                 type="button"
@@ -653,9 +639,6 @@ export default function App() {
                 }}
               >
                 New room
-              </button>
-              <button type="button" className="secondary" onClick={signOut}>
-                Sign out
               </button>
             </div>
           </header>
@@ -702,8 +685,7 @@ export default function App() {
               </button>
 
               <div className="mode-card">
-                <span className="field-label">Room style</span>
-                <ModePicker value={mode} onChange={(value) => void syncRoomPreferences(value, synthesizeResponses)} compact />
+                <span className="field-label">Room audio</span>
                 <label className="checkbox checkbox--inline">
                   <input
                     type="checkbox"
