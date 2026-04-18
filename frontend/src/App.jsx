@@ -51,6 +51,72 @@ function normalizeRoom(room) {
   };
 }
 
+const LOCAL_MESSAGE_PREFIX = "local-";
+
+function createLocalMessageId() {
+  if (window.crypto?.randomUUID) {
+    return `${LOCAL_MESSAGE_PREFIX}${window.crypto.randomUUID()}`;
+  }
+  return `${LOCAL_MESSAGE_PREFIX}${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createPendingMessage({ kind, speaker, source, target, originalText, attachmentName = null }) {
+  return {
+    id: createLocalMessageId(),
+    kind,
+    speaker,
+    speaker_name: source.name,
+    target_name: target.name,
+    source_language: source.language,
+    target_language: target.language,
+    original_text: originalText,
+    translated_text: "Translating...",
+    detected_source_language: source.language,
+    status: "translating",
+    audio_base64: null,
+    audio_mime_type: null,
+    audioUrl: null,
+    attachment_name: attachmentName,
+    created_at: Date.now() / 1000,
+    error_detail: null,
+  };
+}
+
+function isLocalMessage(message) {
+  return String(message.id).startsWith(LOCAL_MESSAGE_PREFIX);
+}
+
+function matchesPendingMessage(serverMessage, pendingMessage) {
+  return (
+    serverMessage.speaker === pendingMessage.speaker &&
+    serverMessage.kind === pendingMessage.kind &&
+    serverMessage.original_text === pendingMessage.original_text &&
+    serverMessage.source_language === pendingMessage.source_language &&
+    serverMessage.target_language === pendingMessage.target_language &&
+    Math.abs((serverMessage.created_at ?? 0) - (pendingMessage.created_at ?? 0)) < 45
+  );
+}
+
+function mergeRoomStateWithPending(currentRoom, latestRoom) {
+  if (!currentRoom) {
+    return latestRoom;
+  }
+  const pendingMessages = currentRoom.messages.filter(isLocalMessage);
+  if (!pendingMessages.length) {
+    return latestRoom;
+  }
+  const unresolvedPending = pendingMessages.filter(
+    (pendingMessage) => !latestRoom.messages.some((serverMessage) => matchesPendingMessage(serverMessage, pendingMessage)),
+  );
+  if (!unresolvedPending.length) {
+    return latestRoom;
+  }
+  return {
+    ...latestRoom,
+    messages: [...latestRoom.messages, ...unresolvedPending],
+  };
+}
+
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [authToken, setAuthToken] = useState("");
@@ -79,8 +145,10 @@ export default function App() {
   const [isSubmittingText, setIsSubmittingText] = useState(false);
   const [isSubmittingAudio, setIsSubmittingAudio] = useState(false);
   const [isUpdatingRoom, setIsUpdatingRoom] = useState(false);
+  const [isSwitchAnimating, setIsSwitchAnimating] = useState(false);
+  const messagesStreamRef = useRef(null);
   const streamEndRef = useRef(null);
-  const previousMessageCountRef = useRef(0);
+  const switchAnimationTimeoutRef = useRef(null);
 
   const roomLink = useMemo(() => getRoomLink(room?.id, "a"), [room?.id]);
   const partnerInviteLink = useMemo(() => getRoomLink(room?.id, "b"), [room?.id]);
@@ -108,23 +176,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!room) {
-      previousMessageCountRef.current = 0;
+    return () => {
+      if (switchAnimationTimeoutRef.current) {
+        window.clearTimeout(switchAnimationTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!room?.messages.length) {
       return;
     }
-
-    const currentCount = room.messages.length;
-    const previousCount = previousMessageCountRef.current;
-    const documentHeight = document.documentElement.scrollHeight;
-    const viewportBottom = window.scrollY + window.innerHeight;
-    const nearBottom = documentHeight - viewportBottom < 220;
-
-    if (currentCount > previousCount && (nearBottom || previousCount === 0)) {
-      streamEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-
-    previousMessageCountRef.current = currentCount;
-  }, [room?.id, room?.messages.length]);
+    const frameId = window.requestAnimationFrame(() => {
+      const container = messagesStreamRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [room?.id, room?.messages]);
 
   useEffect(() => {
     if (!authReady) {
@@ -169,7 +239,7 @@ export default function App() {
     const interval = window.setInterval(async () => {
       try {
         const latestRoom = await fetchRoom(room.id);
-        setRoom(normalizeRoom(latestRoom));
+        setRoom((current) => mergeRoomStateWithPending(current, normalizeRoom(latestRoom)));
         setMode(latestRoom.mode);
         setSynthesizeResponses(latestRoom.synthesize_responses);
       } catch {
@@ -266,7 +336,23 @@ export default function App() {
     setIsSubmittingText(true);
     setError("");
     const text = draft.trim();
+    const { source, target } = getSpeakerData(activeSpeaker);
+    const pendingMessage = createPendingMessage({
+      kind: "text",
+      speaker: activeSpeaker,
+      source,
+      target,
+      originalText: text,
+    });
     setDraft("");
+    setRoom((current) =>
+      current
+        ? {
+            ...current,
+            messages: [...current.messages, pendingMessage],
+          }
+        : current,
+    );
     try {
       const createdMessage = await sendRoomTextMessage(room.id, {
         speaker: activeSpeaker,
@@ -280,7 +366,9 @@ export default function App() {
         current
           ? {
               ...current,
-              messages: [...current.messages, nextMessage],
+              messages: current.messages.some((message) => message.id === nextMessage.id)
+                ? current.messages
+                : [...current.messages.filter((message) => message.id !== pendingMessage.id), nextMessage],
             }
           : current,
       );
@@ -290,10 +378,48 @@ export default function App() {
       }
     } catch (requestError) {
       console.error("Room text send failed", requestError);
+      setRoom((current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === pendingMessage.id
+                  ? {
+                      ...message,
+                      status: "error",
+                      translated_text: "Translation failed.",
+                      error_detail: requestError.message,
+                    }
+                  : message,
+              ),
+            }
+          : current,
+      );
       setError(requestError.message);
     } finally {
       setIsSubmittingText(false);
     }
+  }
+
+  function handleDraftKeyDown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!busy && draft.trim()) {
+        void sendTextMessage();
+      }
+    }
+  }
+
+  function handleSpeakerSwitch() {
+    setActiveSpeaker((current) => (current === "a" ? "b" : "a"));
+    setIsSwitchAnimating(true);
+    if (switchAnimationTimeoutRef.current) {
+      window.clearTimeout(switchAnimationTimeoutRef.current);
+    }
+    switchAnimationTimeoutRef.current = window.setTimeout(() => {
+      setIsSwitchAnimating(false);
+      switchAnimationTimeoutRef.current = null;
+    }, 700);
   }
 
   async function sendAudioMessage(file) {
@@ -307,6 +433,23 @@ export default function App() {
     }
     setIsSubmittingAudio(true);
     setError("");
+    const { source, target } = getSpeakerData(activeSpeaker);
+    const pendingMessage = createPendingMessage({
+      kind: "audio",
+      speaker: activeSpeaker,
+      source,
+      target,
+      originalText: "Transcribing voice message...",
+      attachmentName: file.name || "Voice note",
+    });
+    setRoom((current) =>
+      current
+        ? {
+            ...current,
+            messages: [...current.messages, pendingMessage],
+          }
+        : current,
+    );
     try {
       const createdMessage = await sendRoomAudioMessage(room.id, activeSpeaker, file, authToken);
       const nextMessage = {
@@ -317,7 +460,9 @@ export default function App() {
         current
           ? {
               ...current,
-              messages: [...current.messages, nextMessage],
+              messages: current.messages.some((message) => message.id === nextMessage.id)
+                ? current.messages
+                : [...current.messages.filter((message) => message.id !== pendingMessage.id), nextMessage],
             }
           : current,
       );
@@ -327,6 +472,23 @@ export default function App() {
       }
     } catch (requestError) {
       console.error("Room audio send failed", requestError);
+      setRoom((current) =>
+        current
+          ? {
+              ...current,
+              messages: current.messages.map((message) =>
+                message.id === pendingMessage.id
+                  ? {
+                      ...message,
+                      status: "error",
+                      translated_text: "Translation failed.",
+                      error_detail: requestError.message,
+                    }
+                  : message,
+              ),
+            }
+          : current,
+      );
       setError(requestError.message);
     } finally {
       setIsSubmittingAudio(false);
@@ -336,6 +498,8 @@ export default function App() {
   function renderMessage(message) {
     const speaker = message.speaker === "a" ? room.participant_a : room.participant_b;
     const target = message.speaker === "a" ? room.participant_b : room.participant_a;
+
+    const statusLabel = message.status === "translating" ? "Translating" : message.status;
 
     return (
       <article
@@ -351,7 +515,10 @@ export default function App() {
               </span>
             </div>
             {message.status !== "done" ? (
-              <span className={`status-pill status-pill--${message.status}`}>{message.status}</span>
+              <span className={`status-pill status-pill--${message.status}`}>
+                {message.status === "translating" ? <span className="status-spinner" aria-hidden="true" /> : null}
+                {statusLabel}
+              </span>
             ) : null}
           </div>
 
@@ -491,37 +658,57 @@ export default function App() {
     );
   }
 
-  return (
-    <>
-      <CondomBurst />
-      {!room ? (
+  if (showProfile) {
+    return (
+      <>
+        <CondomBurst />
         <main className="setup-shell">
-          <section className="setup-hero setup-hero--centered">
-            <div className="hero-brand">
-              <div className="hero-brand__title">SMASH</div>
-              <div className="hero-brand__subtitle">TRANSLATOR</div>
+          <header className="chat-header">
+            <div>
+              <div className="eyebrow">Profile</div>
+              <h2>{authUser.display_name || authUser.email}</h2>
+              <p>Manage your custom voice and translated speech settings.</p>
             </div>
-            <HeroModel />
-            <div className="header-actions header-actions--centered">
-              <button type="button" className="secondary" onClick={() => setShowProfile((current) => !current)}>
-                {showProfile ? "Hide profile" : "Profile"}
+            <div className="header-actions">
+              <button type="button" className="secondary" onClick={() => setShowProfile(false)}>
+                Back
               </button>
               <button type="button" className="secondary" onClick={signOut}>
                 Sign out
               </button>
             </div>
-          </section>
+          </header>
 
-          {showProfile ? (
-            <VoiceStudio
-              token={authToken}
-              user={authUser}
-              voiceProfile={voiceProfile}
-              onProfileUpdated={setVoiceProfile}
-              languageOptions={languageOptions}
-              genderOptions={genderOptions}
-            />
-          ) : null}
+          <VoiceStudio
+            token={authToken}
+            user={authUser}
+            voiceProfile={voiceProfile}
+            onProfileUpdated={setVoiceProfile}
+            languageOptions={languageOptions}
+            genderOptions={genderOptions}
+          />
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <CondomBurst />
+      {!room ? (
+        <main className="setup-shell">
+          <header className="chat-header room-setup-header">
+            <div className="room-setup-header__copy">
+              <div className="eyebrow">Create room</div>
+              <h2>Set up your conversation</h2>
+              <p>Choose both speakers, languages, and audio behavior before you start.</p>
+            </div>
+            <div className="header-actions room-setup-header__actions">
+              <button type="button" className="secondary" onClick={() => setShowProfile(true)}>
+                Profile
+              </button>
+            </div>
+          </header>
 
           <section className="setup-card">
             <div className="setup-grid">
@@ -592,7 +779,7 @@ export default function App() {
               </div>
             </div>
 
-            <button type="button" className="primary-cta" onClick={handleCreateRoom} disabled={isCreatingRoom}>
+            <button type="button" className="primary-cta room-setup-cta" onClick={handleCreateRoom} disabled={isCreatingRoom}>
               {isCreatingRoom ? "Creating room..." : "Create room"}
             </button>
 
@@ -600,18 +787,12 @@ export default function App() {
           </section>
         </main>
       ) : (
-        <main className="chat-shell">
-          <header className="chat-header">
-            <div>
+        <main className="chat-shell chat-shell--room">
+          <header className="chat-header room-header">
+            <div className="room-header__meta">
               <div className="eyebrow">Room {room.id}</div>
-              <h2>
-                {room.participant_a.name} and {room.participant_b.name}
-              </h2>
-              <p>
-                {room.participant_a.language} ↔ {room.participant_b.language}
-              </p>
             </div>
-            <div className="header-actions">
+            <div className="header-actions room-header__actions">
               <button type="button" className="secondary" onClick={copyRoomLink}>
                 Copy host link
               </button>
@@ -643,17 +824,6 @@ export default function App() {
             </div>
           </header>
 
-          {showProfile ? (
-            <VoiceStudio
-              token={authToken}
-              user={authUser}
-              voiceProfile={voiceProfile}
-              onProfileUpdated={setVoiceProfile}
-              languageOptions={languageOptions}
-              genderOptions={genderOptions}
-            />
-          ) : null}
-
           <section className="chat-layout">
             <aside className="participants-panel">
               <div className="share-card">
@@ -664,25 +834,17 @@ export default function App() {
                 </a>
               </div>
 
-              <button
-                type="button"
-                className={`speaker-card ${activeSpeaker === "a" ? "speaker-card--active" : ""}`}
-                onClick={() => setActiveSpeaker("a")}
-              >
-                <span className="speaker-tag">Now speaking</span>
-                <strong>{room.participant_a.name}</strong>
-                <span>{room.participant_a.language}</span>
-              </button>
-
-              <button
-                type="button"
-                className={`speaker-card ${activeSpeaker === "b" ? "speaker-card--active" : ""}`}
-                onClick={() => setActiveSpeaker("b")}
-              >
-                <span className="speaker-tag">Tap to switch</span>
-                <strong>{room.participant_b.name}</strong>
-                <span>{room.participant_b.language}</span>
-              </button>
+              <div className="speaker-card speaker-card--summary">
+                <span className="speaker-tag">Participants</span>
+                <div className="speaker-summary-row">
+                  <strong>{room.participant_a.name}</strong>
+                  <span>{room.participant_a.language}</span>
+                </div>
+                <div className="speaker-summary-row">
+                  <strong>{room.participant_b.name}</strong>
+                  <span>{room.participant_b.language}</span>
+                </div>
+              </div>
 
               <div className="mode-card">
                 <span className="field-label">Room audio</span>
@@ -698,7 +860,7 @@ export default function App() {
             </aside>
 
             <section className="conversation-panel">
-              <div className="messages-stream">
+              <div className="messages-stream" ref={messagesStreamRef}>
                 {room.messages.length ? (
                   room.messages.map(renderMessage)
                 ) : (
@@ -711,11 +873,26 @@ export default function App() {
 
               <div className="composer-card">
                 <div className="composer-topline">
-                  <div>
+                  <div className="composer-speaker-meta">
                     <span className="field-label">Active speaker</span>
-                    <strong>
-                      {activeSpeakerMeta.name} speaking {activeSpeakerMeta.language}
-                    </strong>
+                    <div className="composer-speaker-row">
+                      <strong>
+                        {activeSpeakerMeta.name} speaking {activeSpeakerMeta.language}
+                      </strong>
+                      <button
+                        type="button"
+                        className={`composer-switch-button${isSwitchAnimating ? " composer-switch-button--animating" : ""}`}
+                        onClick={handleSpeakerSwitch}
+                        aria-label="Switch active speaker"
+                        title="Switch active speaker"
+                      >
+                        <img
+                          src="/assets/switch-card.png"
+                          alt=""
+                          className="composer-switch-image"
+                        />
+                      </button>
+                    </div>
                   </div>
                   <label className="checkbox checkbox--inline">
                     <input
@@ -728,17 +905,21 @@ export default function App() {
                   </label>
                 </div>
 
-                <textarea
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder={`Write what ${activeSpeakerMeta.name} wants to say...`}
-                />
-
-                <div className="composer-actions">
-                  <AudioControls onAudioReady={sendAudioMessage} disabled={busy} />
-                  <button type="button" className="primary-cta" onClick={sendTextMessage} disabled={busy}>
-                    {isSubmittingText ? "Sending..." : "Send message"}
-                  </button>
+                <div className="composer-inputbar">
+                  <input
+                    className="composer-input"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={handleDraftKeyDown}
+                    placeholder={`Write what ${activeSpeakerMeta.name} wants to say...`}
+                  />
+                  {draft.trim() ? (
+                    <button type="button" className="composer-send-button" onClick={sendTextMessage} disabled={busy}>
+                      {isSubmittingText ? "..." : "Send"}
+                    </button>
+                  ) : (
+                    <AudioControls onAudioReady={sendAudioMessage} disabled={busy} iconOnly />
+                  )}
                 </div>
 
                 {error ? <p className="error-banner">{error}</p> : null}

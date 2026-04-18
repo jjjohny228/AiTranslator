@@ -1,6 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 
-export function AudioControls({ onAudioReady, disabled = false }) {
+function MicrophoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="composer-icon-svg">
+      <path
+        d="M12 15.5A3.5 3.5 0 0 0 15.5 12V7A3.5 3.5 0 1 0 8.5 7v5A3.5 3.5 0 0 0 12 15.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 11.5v.5A5.5 5.5 0 0 0 18 12v-.5M12 17.5v3M9 20.5h6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="composer-icon-svg">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function AudioControls({ onAudioReady, disabled = false, iconOnly = false }) {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState("");
   const mediaRecorderRef = useRef(null);
@@ -49,12 +80,25 @@ export function AudioControls({ onAudioReady, disabled = false }) {
     <div className="audio-controls">
       <div className="audio-actions">
         {!isRecording ? (
-          <button type="button" className="secondary" onClick={startRecording} disabled={disabled}>
-            Record voice
+          <button
+            type="button"
+            className={iconOnly ? "composer-icon-button" : "secondary"}
+            onClick={startRecording}
+            disabled={disabled}
+            aria-label="Record voice"
+            title="Record voice"
+          >
+            {iconOnly ? <MicrophoneIcon /> : "Record voice"}
           </button>
         ) : (
-          <button type="button" className="danger" onClick={stopRecording}>
-            Stop recording
+          <button
+            type="button"
+            className={iconOnly ? "composer-icon-button composer-icon-button--recording" : "danger"}
+            onClick={stopRecording}
+            aria-label="Stop recording"
+            title="Stop recording"
+          >
+            {iconOnly ? <StopIcon /> : "Stop recording"}
           </button>
         )}
       </div>

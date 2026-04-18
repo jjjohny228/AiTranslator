@@ -196,6 +196,13 @@ textarea {
     max(28px, calc(24px + env(safe-area-inset-bottom)));
 }
 
+.chat-shell--room {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .setup-shell::before,
 .chat-shell::before {
   content: "";
@@ -594,6 +601,29 @@ h2 {
   justify-content: center;
 }
 
+.room-setup-header__copy {
+  min-width: 0;
+}
+
+.room-header {
+  align-items: center;
+}
+
+.room-header__meta {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.room-header__actions {
+  flex: 1 1 auto;
+  align-items: center;
+}
+
+.room-setup-cta {
+  display: block;
+  margin: 0 auto;
+}
+
 .hero-model-shell {
   position: relative;
   min-width: 0;
@@ -628,10 +658,12 @@ h2 {
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+  min-height: 0;
 }
 
 .chat-layout > * {
   min-width: 0;
+  min-height: 0;
 }
 
 .participants-panel {
@@ -640,6 +672,8 @@ h2 {
   gap: 14px;
   position: sticky;
   top: 16px;
+  max-height: 100%;
+  overflow-y: auto;
 }
 
 .share-card {
@@ -774,6 +808,15 @@ h2 {
   box-shadow: 0 0 20px rgba(255, 153, 0, 0.22);
 }
 
+.speaker-card--summary {
+  gap: 14px;
+}
+
+.speaker-summary-row {
+  display: grid;
+  gap: 4px;
+}
+
 .mode-card {
   overflow: hidden;
 }
@@ -817,7 +860,8 @@ h2 {
 
 .conversation-panel {
   padding: 16px;
-  min-height: 72vh;
+  min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
@@ -828,7 +872,11 @@ h2 {
   display: grid;
   gap: 14px;
   align-content: start;
-  min-height: 280px;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .timeline-note {
@@ -893,6 +941,9 @@ h2 {
 
 .status-pill {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border: 2px solid var(--cyan);
   background: rgba(0, 255, 255, 0.08);
@@ -901,10 +952,24 @@ h2 {
   letter-spacing: 0.1em;
 }
 
+.status-pill--translating {
+  border-color: rgba(0, 255, 255, 0.4);
+  background: rgba(0, 255, 255, 0.1);
+}
+
 .status-pill--error {
   border-color: var(--pink);
   background: rgba(255, 0, 255, 0.14);
   color: #ffd4ff;
+}
+
+.status-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(0, 255, 255, 0.22);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: status-spin 0.8s linear infinite;
 }
 
 .voice-badge {
@@ -1082,6 +1147,7 @@ h2 {
   padding: 16px;
   margin-top: 6px;
   background: var(--bg-panel-strong);
+  z-index: 1;
 }
 
 .composer-topline {
@@ -1100,26 +1166,134 @@ h2 {
   font-size: 1.02rem;
 }
 
-.composer-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
-  gap: 14px;
-  align-items: end;
-  margin-top: 14px;
+.composer-speaker-meta {
+  min-width: 0;
+}
+
+.composer-speaker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-switch-button {
+  display: inline-block;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan);
+  box-shadow: none;
+  transform: none;
+  padding: 0;
+  min-height: 0;
+  line-height: 0;
+  overflow: visible;
+}
+
+.composer-switch-button:hover {
+  transform: translateY(-1px);
+  box-shadow: none;
+  background: transparent;
+}
+
+.composer-switch-button > * {
+  transform: none;
+  display: block;
+}
+
+.composer-switch-button--animating .composer-switch-image {
+  animation: switch-card-flip 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.composer-switch-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.12));
+  transform-origin: center;
 }
 
 .audio-controls {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .audio-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .audio-actions > * {
-  flex: 1;
+  flex: 0 0 auto;
+}
+
+.composer-inputbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.composer-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 2px solid rgba(0, 255, 255, 0.24);
+  background: rgba(3, 0, 10, 0.86);
+  color: #fff;
+  font-size: 1rem;
+}
+
+.composer-input::placeholder {
+  color: rgba(255, 0, 255, 0.62);
+}
+
+.composer-send-button,
+.composer-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  justify-content: center;
+  border: 2px solid var(--pink);
+  background: rgba(255, 0, 255, 0.9);
+  color: #fff;
+  box-shadow: 0 0 18px rgba(255, 0, 255, 0.36);
+  font-size: 1.05rem;
+}
+
+.composer-send-button {
+  min-width: 92px;
+  width: auto;
+  padding: 0 18px;
+}
+
+.composer-icon-button {
+  border-color: var(--cyan);
+  background: rgba(0, 255, 255, 0.1);
+  color: var(--cyan);
+  box-shadow: 0 0 18px rgba(0, 255, 255, 0.22);
+}
+
+.composer-icon-button--recording {
+  border-color: var(--pink);
+  background: rgba(255, 0, 255, 0.18);
+  color: #fff;
+}
+
+.composer-icon-svg {
+  width: 20px;
+  height: 20px;
 }
 
 .upload-button {
@@ -1213,13 +1387,44 @@ h2 {
   }
 }
 
+@keyframes status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes switch-card-flip {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  100% {
+    transform: rotate(180deg) scale(1);
+  }
+}
+
 @media (max-width: 980px) {
+  .chat-shell--room {
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+
   .setup-hero__grid {
     grid-template-columns: 1fr;
   }
 
   .chat-layout {
     grid-template-columns: 1fr;
+  }
+
+  .messages-stream {
+    height: auto;
+    max-height: 70vh;
   }
 
   .participants-panel {
@@ -1254,6 +1459,34 @@ h2 {
 
   .header-actions button {
     width: 100%;
+  }
+
+  .room-setup-header {
+    text-align: center;
+  }
+
+  .room-setup-header .eyebrow {
+    margin-inline: auto;
+  }
+
+  .room-setup-header h2 {
+    margin-top: 16px;
+  }
+
+  .room-setup-header__actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .room-setup-header__actions button {
+    width: 100%;
+  }
+
+  .room-setup-cta {
+    width: min(100%, 260px);
+    justify-content: center;
   }
 
   .audio-actions {
@@ -1332,5 +1565,17 @@ h2 {
 
   .composer-actions {
     grid-template-columns: 1fr;
+  }
+
+  .room-setup-header {
+    padding-top: 18px;
+  }
+
+  .room-setup-header__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .room-setup-cta {
+    width: min(100%, 240px);
   }
 }
