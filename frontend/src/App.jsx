@@ -271,6 +271,7 @@ export default function App() {
     setError("");
     try {
       const nextRoom = await createRoom({
+        token: authToken,
         participant_a: participants.a,
         participant_b: participants.b,
         mode,
@@ -322,10 +323,6 @@ export default function App() {
   async function sendTextMessage() {
     if (!room?.id) {
       setError("Create a room first.");
-      return;
-    }
-    if (!authToken) {
-      setError("Sign in to send messages.");
       return;
     }
     if (!draft.trim()) {
@@ -425,10 +422,6 @@ export default function App() {
   async function sendAudioMessage(file) {
     if (!room?.id) {
       setError("Create a room first.");
-      return;
-    }
-    if (!authToken) {
-      setError("Sign in to send messages.");
       return;
     }
     setIsSubmittingAudio(true);
@@ -541,6 +534,7 @@ export default function App() {
 
   const busy = isSubmittingText || isSubmittingAudio || isUpdatingRoom;
   const activeSpeakerMeta = getSpeakerData(activeSpeaker).source;
+  const canManageRooms = Boolean(authUser);
 
   async function submitAuth() {
     setError("");
@@ -575,69 +569,6 @@ export default function App() {
           <section className="setup-hero">
             <div className="eyebrow">Booting identity layer...</div>
             <h1>Connecting your neon passport.</h1>
-          </section>
-        </main>
-      </>
-    );
-  }
-
-  if (!authUser) {
-    return (
-      <>
-        <CondomBurst />
-        <main className="setup-shell">
-          <section className="setup-hero setup-hero--centered">
-            <div className="hero-brand">
-              <div className="hero-brand__title">SMASH</div>
-              <div className="hero-brand__subtitle">TRANSLATOR</div>
-            </div>
-            <HeroModel />
-          </section>
-
-          <section className="setup-card auth-card">
-            {authMode === "register" ? (
-              <label className="field">
-                <span>Display name</span>
-                <input
-                  value={authForm.display_name}
-                  onChange={(event) => setAuthForm((current) => ({ ...current, display_name: event.target.value }))}
-                  placeholder="Your public name"
-                />
-              </label>
-            ) : null}
-
-            <label className="field">
-              <span>Email</span>
-              <input
-                value={authForm.email}
-                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="you@example.com"
-              />
-            </label>
-
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="Minimum 8 characters"
-              />
-            </label>
-
-            <button type="button" className="primary-cta" onClick={submitAuth}>
-              {authMode === "login" ? "Sign in" : "Create account"}
-            </button>
-
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setAuthMode((current) => (current === "login" ? "register" : "login"))}
-            >
-              {authMode === "login" ? "Need an account?" : "Already have an account?"}
-            </button>
-
-            {error ? <p className="error-banner">{error}</p> : null}
           </section>
         </main>
       </>
@@ -695,7 +626,151 @@ export default function App() {
   return (
     <>
       <CondomBurst />
-      {!room ? (
+      {room ? (
+        <main className="chat-shell chat-shell--room">
+          <header className="chat-header room-header">
+            <div className="room-header__meta">
+              <div className="eyebrow">Room {room.id}</div>
+            </div>
+            {canManageRooms ? (
+              <div className="header-actions room-header__actions">
+                <button type="button" className="secondary" onClick={copyRoomLink}>
+                  Copy host link
+                </button>
+                <button type="button" className="secondary" onClick={() => navigator.clipboard?.writeText(partnerInviteLink).catch(() => {})}>
+                  Copy invite link
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    window.history.replaceState({}, "", window.location.pathname);
+                    setRoom(null);
+                    setError("");
+                  }}
+                >
+                  Leave room
+                </button>
+                <button
+                  type="button"
+                  className="swap-button"
+                  onClick={() => {
+                    window.history.replaceState({}, "", window.location.pathname);
+                    setRoom(null);
+                    setError("");
+                  }}
+                >
+                  New room
+                </button>
+              </div>
+            ) : null}
+          </header>
+
+          <section className="chat-layout">
+            <aside className="participants-panel">
+              <div className="share-card">
+                <span className="field-label">Invite partner</span>
+                <RoomQrCode value={partnerInviteLink} />
+                <a className="room-link" href={partnerInviteLink}>
+                  {partnerInviteLink}
+                </a>
+              </div>
+
+              <div className="speaker-card speaker-card--summary">
+                <span className="speaker-tag">Participants</span>
+                <div className="speaker-summary-row">
+                  <strong>{room.participant_a.name}</strong>
+                  <span>{room.participant_a.language}</span>
+                </div>
+                <div className="speaker-summary-row">
+                  <strong>{room.participant_b.name}</strong>
+                  <span>{room.participant_b.language}</span>
+                </div>
+              </div>
+
+              <div className="mode-card">
+                <span className="field-label">Room audio</span>
+                <label className="checkbox checkbox--inline">
+                  <input
+                    type="checkbox"
+                    checked={synthesizeResponses}
+                    onChange={(event) => void syncRoomPreferences(mode, event.target.checked)}
+                    disabled={!canManageRooms}
+                  />
+                  Voice replies in this room
+                </label>
+              </div>
+            </aside>
+
+            <section className="conversation-panel">
+              <div className="messages-stream" ref={messagesStreamRef}>
+                {room.messages.length ? (
+                  room.messages.map(renderMessage)
+                ) : (
+                  <div className="timeline-note">
+                    <span>Room is ready. Share the link or QR and start talking.</span>
+                  </div>
+                )}
+                <div ref={streamEndRef} />
+              </div>
+
+              <div className="composer-card">
+                <div className="composer-topline">
+                  <div className="composer-speaker-meta">
+                    <span className="field-label">Active speaker</span>
+                    <div className="composer-speaker-row">
+                      <strong>
+                        {activeSpeakerMeta.name} speaking {activeSpeakerMeta.language}
+                      </strong>
+                      <button
+                        type="button"
+                        className={`composer-switch-button${isSwitchAnimating ? " composer-switch-button--animating" : ""}`}
+                        onClick={handleSpeakerSwitch}
+                        aria-label="Switch active speaker"
+                        title="Switch active speaker"
+                      >
+                        <img
+                          src="/assets/switch-card.png"
+                          alt=""
+                          className="composer-switch-image"
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  <label className="checkbox checkbox--inline">
+                    <input
+                      type="checkbox"
+                      checked={autoPlayVoice}
+                      onChange={(event) => setAutoPlayVoice(event.target.checked)}
+                      disabled={!synthesizeResponses}
+                    />
+                    Auto-play voice for me
+                  </label>
+                </div>
+
+                <div className="composer-inputbar">
+                  <input
+                    className="composer-input"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={handleDraftKeyDown}
+                    placeholder={`Write what ${activeSpeakerMeta.name} wants to say...`}
+                  />
+                  {draft.trim() ? (
+                    <button type="button" className="composer-send-button" onClick={sendTextMessage} disabled={busy}>
+                      {isSubmittingText ? "..." : "Send"}
+                    </button>
+                  ) : (
+                    <AudioControls onAudioReady={sendAudioMessage} disabled={busy} iconOnly />
+                  )}
+                </div>
+
+                {error ? <p className="error-banner">{error}</p> : null}
+              </div>
+            </section>
+          </section>
+        </main>
+      ) : authUser ? (
         <main className="setup-shell">
           <header className="chat-header room-setup-header">
             <div className="room-setup-header__copy">
@@ -787,144 +862,59 @@ export default function App() {
           </section>
         </main>
       ) : (
-        <main className="chat-shell chat-shell--room">
-          <header className="chat-header room-header">
-            <div className="room-header__meta">
-              <div className="eyebrow">Room {room.id}</div>
+        <main className="setup-shell">
+          <section className="setup-hero setup-hero--centered">
+            <div className="hero-brand">
+              <div className="hero-brand__title">SMASH</div>
+              <div className="hero-brand__subtitle">TRANSLATOR</div>
             </div>
-            <div className="header-actions room-header__actions">
-              <button type="button" className="secondary" onClick={copyRoomLink}>
-                Copy host link
-              </button>
-              <button type="button" className="secondary" onClick={() => navigator.clipboard?.writeText(partnerInviteLink).catch(() => {})}>
-                Copy invite link
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  window.history.replaceState({}, "", window.location.pathname);
-                  setRoom(null);
-                  setError("");
-                }}
-              >
-                Leave room
-              </button>
-              <button
-                type="button"
-                className="swap-button"
-                onClick={() => {
-                  window.history.replaceState({}, "", window.location.pathname);
-                  setRoom(null);
-                  setError("");
-                }}
-              >
-                New room
-              </button>
-            </div>
-          </header>
+            <HeroModel />
+          </section>
 
-          <section className="chat-layout">
-            <aside className="participants-panel">
-              <div className="share-card">
-                <span className="field-label">Invite partner</span>
-                <RoomQrCode value={partnerInviteLink} />
-                <a className="room-link" href={partnerInviteLink}>
-                  {partnerInviteLink}
-                </a>
-              </div>
+          <section className="setup-card auth-card">
+            {authMode === "register" ? (
+              <label className="field">
+                <span>Display name</span>
+                <input
+                  value={authForm.display_name}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, display_name: event.target.value }))}
+                  placeholder="Your public name"
+                />
+              </label>
+            ) : null}
 
-              <div className="speaker-card speaker-card--summary">
-                <span className="speaker-tag">Participants</span>
-                <div className="speaker-summary-row">
-                  <strong>{room.participant_a.name}</strong>
-                  <span>{room.participant_a.language}</span>
-                </div>
-                <div className="speaker-summary-row">
-                  <strong>{room.participant_b.name}</strong>
-                  <span>{room.participant_b.language}</span>
-                </div>
-              </div>
+            <label className="field">
+              <span>Email</span>
+              <input
+                value={authForm.email}
+                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                placeholder="you@example.com"
+              />
+            </label>
 
-              <div className="mode-card">
-                <span className="field-label">Room audio</span>
-                <label className="checkbox checkbox--inline">
-                  <input
-                    type="checkbox"
-                    checked={synthesizeResponses}
-                    onChange={(event) => void syncRoomPreferences(mode, event.target.checked)}
-                  />
-                  Voice replies in this room
-                </label>
-              </div>
-            </aside>
+            <label className="field">
+              <span>Password</span>
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder="Minimum 8 characters"
+              />
+            </label>
 
-            <section className="conversation-panel">
-              <div className="messages-stream" ref={messagesStreamRef}>
-                {room.messages.length ? (
-                  room.messages.map(renderMessage)
-                ) : (
-                  <div className="timeline-note">
-                    <span>Room is ready. Share the link or QR and start talking.</span>
-                  </div>
-                )}
-                <div ref={streamEndRef} />
-              </div>
+            <button type="button" className="primary-cta" onClick={submitAuth}>
+              {authMode === "login" ? "Sign in" : "Create account"}
+            </button>
 
-              <div className="composer-card">
-                <div className="composer-topline">
-                  <div className="composer-speaker-meta">
-                    <span className="field-label">Active speaker</span>
-                    <div className="composer-speaker-row">
-                      <strong>
-                        {activeSpeakerMeta.name} speaking {activeSpeakerMeta.language}
-                      </strong>
-                      <button
-                        type="button"
-                        className={`composer-switch-button${isSwitchAnimating ? " composer-switch-button--animating" : ""}`}
-                        onClick={handleSpeakerSwitch}
-                        aria-label="Switch active speaker"
-                        title="Switch active speaker"
-                      >
-                        <img
-                          src="/assets/switch-card.png"
-                          alt=""
-                          className="composer-switch-image"
-                        />
-                      </button>
-                    </div>
-                  </div>
-                  <label className="checkbox checkbox--inline">
-                    <input
-                      type="checkbox"
-                      checked={autoPlayVoice}
-                      onChange={(event) => setAutoPlayVoice(event.target.checked)}
-                      disabled={!synthesizeResponses}
-                    />
-                    Auto-play voice for me
-                  </label>
-                </div>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setAuthMode((current) => (current === "login" ? "register" : "login"))}
+            >
+              {authMode === "login" ? "Need an account?" : "Already have an account?"}
+            </button>
 
-                <div className="composer-inputbar">
-                  <input
-                    className="composer-input"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={handleDraftKeyDown}
-                    placeholder={`Write what ${activeSpeakerMeta.name} wants to say...`}
-                  />
-                  {draft.trim() ? (
-                    <button type="button" className="composer-send-button" onClick={sendTextMessage} disabled={busy}>
-                      {isSubmittingText ? "..." : "Send"}
-                    </button>
-                  ) : (
-                    <AudioControls onAudioReady={sendAudioMessage} disabled={busy} iconOnly />
-                  )}
-                </div>
-
-                {error ? <p className="error-banner">{error}</p> : null}
-              </div>
-            </section>
+            {error ? <p className="error-banner">{error}</p> : null}
           </section>
         </main>
       )}

@@ -134,7 +134,11 @@ async def create_voice_profile(
 
 
 @router.post("/rooms", response_model=RoomState)
-async def create_room(payload: RoomCreateRequest) -> RoomState:
+async def create_room(
+    payload: RoomCreateRequest,
+    current_user: UserRecord = Depends(get_current_user),
+) -> RoomState:
+    _ = current_user
     return room_service.create_room(payload)
 
 

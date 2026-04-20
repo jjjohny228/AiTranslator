@@ -61,14 +61,18 @@ export function base64ToAudioUrl(base64, mimeType) {
 }
 
 export async function createRoom(payload) {
+  const token = payload.token;
+  const body = { ...payload };
+  delete body.token;
   let response;
   try {
     response = await fetch(`${API_BASE_URL}/rooms`, {
       method: "POST",
       headers: {
+        ...withAuth({}, token),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   } catch {
     throw new Error("Cannot reach the backend API. Start FastAPI on port 8000 or set VITE_API_BASE_URL.");
