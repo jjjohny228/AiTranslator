@@ -56,6 +56,12 @@ If you want a custom backend URL:
 VITE_API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
+If you run the frontend through the Vite dev server and want `/api` proxying:
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:8000
+```
+
 ## Environment variables
 
 ```env
@@ -83,6 +89,7 @@ Services:
 - postgres: `localhost:5432`
 
 The backend container waits for PostgreSQL and creates the required tables automatically on startup.
+The frontend container uses `VITE_API_BASE_URL=/api` and proxies API requests to `http://backend:8000`.
 
 ## API endpoints
 
