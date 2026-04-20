@@ -66,7 +66,23 @@ ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 REQUEST_TIMEOUT_SECONDS=60
+DATABASE_URL=postgresql+psycopg://translator:translator@localhost:5432/translator
 ```
+
+## Docker Compose
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Services:
+
+- frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- postgres: `localhost:5432`
+
+The backend container waits for PostgreSQL and creates the required tables automatically on startup.
 
 ## API endpoints
 

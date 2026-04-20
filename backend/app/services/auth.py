@@ -3,19 +3,18 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from app.db import get_db_session
+from app.models import SessionToken, User, VoiceProfile
 from app.schemas.auth import UserResponse
 from app.schemas.profile import VoiceProfileResponse
-
-
-DB_PATH = Path(__file__).resolve().parents[2] / "app.db"
 
 
 @dataclass
@@ -26,101 +25,42 @@ class UserRecord:
 
 
 class AuthService:
-    def __init__(self) -> None:
-        self._ensure_tables()
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(DB_PATH)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    def _ensure_tables(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    display_name TEXT NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    password_salt TEXT NOT NULL,
-                    created_at REAL NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS voice_profiles (
-                    user_id TEXT PRIMARY KEY,
-                    voice_id TEXT NOT NULL,
-                    voice_name TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    gender TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id)
-                )
-                """
-            )
-
     def register(self, *, email: str, password: str, display_name: str) -> tuple[str, UserResponse]:
         password_salt = secrets.token_hex(16)
         password_hash = self._hash_password(password, password_salt)
-        user_id = uuid.uuid4().hex
+        user = User(
+            id=uuid.uuid4().hex,
+            email=email.lower(),
+            display_name=display_name,
+            password_hash=password_hash,
+            password_salt=password_salt,
+            created_at=time.time(),
+        )
         try:
-            with self._connect() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO users (id, email, display_name, password_hash, password_salt, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (user_id, email.lower(), display_name, password_hash, password_salt, time.time()),
-                )
-        except sqlite3.IntegrityError as exc:
+            with get_db_session() as session:
+                session.add(user)
+        except IntegrityError as exc:
             raise HTTPException(status_code=409, detail="User with this email already exists.") from exc
-        token = self._create_session(user_id)
-        return token, UserResponse(id=user_id, email=email.lower(), display_name=display_name)
+        token = self._create_session(user.id)
+        return token, UserResponse(id=user.id, email=user.email, display_name=user.display_name)
 
     def login(self, *, email: str, password: str) -> tuple[str, UserResponse]:
-        with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, email, display_name, password_hash, password_salt
-                FROM users
-                WHERE email = ?
-                """,
-                (email.lower(),),
-            ).fetchone()
-        if row is None:
+        with get_db_session() as session:
+            user = session.scalar(select(User).where(User.email == email.lower()))
+        if user is None:
             raise HTTPException(status_code=401, detail="Invalid email or password.")
-        if not self._verify_password(password, row["password_salt"], row["password_hash"]):
+        if not self._verify_password(password, user.password_salt, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid email or password.")
-        token = self._create_session(row["id"])
-        return token, UserResponse(id=row["id"], email=row["email"], display_name=row["display_name"])
+        token = self._create_session(user.id)
+        return token, UserResponse(id=user.id, email=user.email, display_name=user.display_name)
 
     def get_user_by_token(self, token: str) -> UserRecord:
-        with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT users.id, users.email, users.display_name
-                FROM sessions
-                JOIN users ON users.id = sessions.user_id
-                WHERE sessions.token = ?
-                """,
-                (token,),
-            ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=401, detail="Authentication required.")
-        return UserRecord(id=row["id"], email=row["email"], display_name=row["display_name"])
+        with get_db_session() as session:
+            session_token = session.scalar(select(SessionToken).where(SessionToken.token == token))
+            if session_token is None or session_token.user is None:
+                raise HTTPException(status_code=401, detail="Authentication required.")
+            user = session_token.user
+            return UserRecord(id=user.id, email=user.email, display_name=user.display_name)
 
     def save_voice_profile(
         self,
@@ -131,20 +71,25 @@ class AuthService:
         language: str,
         gender: str,
     ) -> VoiceProfileResponse:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO voice_profiles (user_id, voice_id, voice_name, language, gender, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    voice_id = excluded.voice_id,
-                    voice_name = excluded.voice_name,
-                    language = excluded.language,
-                    gender = excluded.gender,
-                    created_at = excluded.created_at
-                """,
-                (user_id, voice_id, voice_name, language, gender, time.time()),
-            )
+        with get_db_session() as session:
+            profile = session.get(VoiceProfile, user_id)
+            if profile is None:
+                profile = VoiceProfile(
+                    user_id=user_id,
+                    voice_id=voice_id,
+                    voice_name=voice_name,
+                    language=language,
+                    gender=gender,
+                    created_at=time.time(),
+                )
+                session.add(profile)
+            else:
+                profile.voice_id = voice_id
+                profile.voice_name = voice_name
+                profile.language = language
+                profile.gender = gender
+                profile.created_at = time.time()
+
         return VoiceProfileResponse(
             status="ready",
             voice_id=voice_id,
@@ -154,32 +99,22 @@ class AuthService:
         )
 
     def get_voice_profile(self, user_id: str) -> VoiceProfileResponse:
-        with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT voice_id, voice_name, language, gender
-                FROM voice_profiles
-                WHERE user_id = ?
-                """,
-                (user_id,),
-            ).fetchone()
-        if row is None:
+        with get_db_session() as session:
+            profile = session.get(VoiceProfile, user_id)
+        if profile is None:
             return VoiceProfileResponse(status="missing")
         return VoiceProfileResponse(
             status="ready",
-            voice_id=row["voice_id"],
-            voice_name=row["voice_name"],
-            language=row["language"],
-            gender=row["gender"],
+            voice_id=profile.voice_id,
+            voice_name=profile.voice_name,
+            language=profile.language,
+            gender=profile.gender,
         )
 
     def _create_session(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-                (token, user_id, time.time()),
-            )
+        with get_db_session() as session:
+            session.add(SessionToken(token=token, user_id=user_id, created_at=time.time()))
         return token
 
     def _hash_password(self, password: str, salt: str) -> str:

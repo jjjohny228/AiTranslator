@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
 
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from app.db import get_db_session
+from app.models import Room, RoomMessageModel
 from app.schemas.rooms import (
     RoomCreateRequest,
     RoomMessage,
@@ -17,36 +20,28 @@ from app.schemas.rooms import (
 from app.services.orchestrator import TranslatorOrchestrator
 
 
-@dataclass
-class RoomRecord:
-    id: str
-    participant_a: RoomParticipant
-    participant_b: RoomParticipant
-    mode: str
-    synthesize_responses: bool
-    created_at: float
-    messages: list[RoomMessage] = field(default_factory=list)
-
-
 class RoomService:
-    def __init__(self) -> None:
-        self._rooms: dict[str, RoomRecord] = {}
-
     def create_room(self, payload: RoomCreateRequest) -> RoomState:
-        room_id = uuid.uuid4().hex[:8]
-        record = RoomRecord(
-            id=room_id,
-            participant_a=payload.participant_a,
-            participant_b=payload.participant_b,
+        room = Room(
+            id=uuid.uuid4().hex[:8],
+            participant_a_name=payload.participant_a.name,
+            participant_a_language=payload.participant_a.language,
+            participant_a_gender=payload.participant_a.gender,
+            participant_b_name=payload.participant_b.name,
+            participant_b_language=payload.participant_b.language,
+            participant_b_gender=payload.participant_b.gender,
             mode=payload.mode,
             synthesize_responses=payload.synthesize_responses,
             created_at=time.time(),
         )
-        self._rooms[room_id] = record
-        return self._to_state(record)
+        with get_db_session() as session:
+            session.add(room)
+        return self.get_room(room.id)
 
     def get_room(self, room_id: str) -> RoomState:
-        return self._to_state(self._require_room(room_id))
+        with get_db_session() as session:
+            room = self._require_room(session, room_id)
+            return self._to_state(room)
 
     async def add_text_message(
         self,
@@ -56,8 +51,10 @@ class RoomService:
         orchestrator: TranslatorOrchestrator,
         voice_id: str | None = None,
     ) -> RoomMessage:
-        room = self._require_room(room_id)
-        source, target = self._resolve_participants(room, payload.speaker)
+        with get_db_session() as session:
+            room = self._require_room(session, room_id)
+            source, target = self._resolve_participants(room, payload.speaker)
+
         response = await orchestrator.translate_text(
             text=payload.text,
             source_language=source.language,
@@ -66,8 +63,9 @@ class RoomService:
             generate_audio=room.synthesize_responses,
             voice_id=voice_id,
         )
-        message = RoomMessage(
+        message = RoomMessageModel(
             id=uuid.uuid4().hex[:12],
+            room_id=room_id,
             kind="text",
             speaker=payload.speaker,
             speaker_name=source.name,
@@ -82,8 +80,9 @@ class RoomService:
             audio_mime_type=response.audio_mime_type,
             created_at=time.time(),
         )
-        room.messages.append(message)
-        return message
+        with get_db_session() as session:
+            session.add(message)
+        return self._to_message(message)
 
     async def add_audio_message(
         self,
@@ -95,8 +94,10 @@ class RoomService:
         orchestrator: TranslatorOrchestrator,
         voice_id: str | None = None,
     ) -> RoomMessage:
-        room = self._require_room(room_id)
-        source, target = self._resolve_participants(room, speaker)
+        with get_db_session() as session:
+            room = self._require_room(session, room_id)
+            source, target = self._resolve_participants(room, speaker)
+
         response = await orchestrator.translate_audio(
             audio_bytes=audio_bytes,
             filename=filename,
@@ -106,8 +107,9 @@ class RoomService:
             generate_audio=room.synthesize_responses,
             voice_id=voice_id,
         )
-        message = RoomMessage(
+        message = RoomMessageModel(
             id=uuid.uuid4().hex[:12],
+            room_id=room_id,
             kind="audio",
             speaker=speaker,
             speaker_name=source.name,
@@ -123,8 +125,9 @@ class RoomService:
             attachment_name=filename,
             created_at=time.time(),
         )
-        room.messages.append(message)
-        return message
+        with get_db_session() as session:
+            session.add(message)
+        return self._to_message(message)
 
     def update_room_preferences(
         self,
@@ -133,38 +136,79 @@ class RoomService:
         mode: str | None = None,
         synthesize_responses: bool | None = None,
     ) -> RoomState:
-        room = self._require_room(room_id)
-        if mode is not None:
-            room.mode = mode
-        if synthesize_responses is not None:
-            room.synthesize_responses = synthesize_responses
-        return self._to_state(room)
+        with get_db_session() as session:
+            room = self._require_room(session, room_id)
+            if mode is not None:
+                room.mode = mode
+            if synthesize_responses is not None:
+                room.synthesize_responses = synthesize_responses
+            session.flush()
+            session.refresh(room)
+            return self._to_state(room)
 
-    def _require_room(self, room_id: str) -> RoomRecord:
-        room = self._rooms.get(room_id)
+    def _require_room(self, session, room_id: str) -> Room:
+        room = session.scalar(
+            select(Room)
+            .options(selectinload(Room.messages))
+            .where(Room.id == room_id)
+        )
         if room is None:
             raise HTTPException(status_code=404, detail="Room not found.")
         return room
 
     def _resolve_participants(
         self,
-        room: RoomRecord,
+        room: Room,
         speaker: SpeakerKey,
     ) -> tuple[RoomParticipant, RoomParticipant]:
-        return (
-            (room.participant_a, room.participant_b)
-            if speaker == "a"
-            else (room.participant_b, room.participant_a)
+        participant_a = RoomParticipant(
+            name=room.participant_a_name,
+            language=room.participant_a_language,
+            gender=room.participant_a_gender,
+        )
+        participant_b = RoomParticipant(
+            name=room.participant_b_name,
+            language=room.participant_b_language,
+            gender=room.participant_b_gender,
+        )
+        return (participant_a, participant_b) if speaker == "a" else (participant_b, participant_a)
+
+    def _to_message(self, message: RoomMessageModel) -> RoomMessage:
+        return RoomMessage(
+            id=message.id,
+            kind=message.kind,
+            speaker=message.speaker,
+            speaker_name=message.speaker_name,
+            target_name=message.target_name,
+            source_language=message.source_language,
+            target_language=message.target_language,
+            original_text=message.original_text,
+            translated_text=message.translated_text,
+            detected_source_language=message.detected_source_language,
+            status=message.status,
+            audio_base64=message.audio_base64,
+            audio_mime_type=message.audio_mime_type,
+            attachment_name=message.attachment_name,
+            created_at=message.created_at,
+            error_detail=message.error_detail,
         )
 
-    def _to_state(self, room: RoomRecord) -> RoomState:
+    def _to_state(self, room: Room) -> RoomState:
         return RoomState(
             id=room.id,
-            participant_a=room.participant_a,
-            participant_b=room.participant_b,
+            participant_a=RoomParticipant(
+                name=room.participant_a_name,
+                language=room.participant_a_language,
+                gender=room.participant_a_gender,
+            ),
+            participant_b=RoomParticipant(
+                name=room.participant_b_name,
+                language=room.participant_b_language,
+                gender=room.participant_b_gender,
+            ),
             mode=room.mode,
             synthesize_responses=room.synthesize_responses,
-            messages=list(room.messages),
+            messages=[self._to_message(message) for message in sorted(room.messages, key=lambda item: item.created_at)],
             created_at=room.created_at,
         )
 
