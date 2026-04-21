@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createVoiceProfile, fetchVoiceScript } from "../lib/api";
 import { LanguageSelect } from "./LanguageSelect";
 
@@ -10,6 +11,7 @@ export function VoiceStudio({
   languageOptions,
   genderOptions,
 }) {
+  const { t } = useTranslation();
   const [language, setLanguage] = useState(voiceProfile?.language ?? "English");
   const [gender, setGender] = useState(voiceProfile?.gender ?? "male");
   const [script, setScript] = useState(null);
@@ -68,7 +70,7 @@ export function VoiceStudio({
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
     } catch {
-      setError("Microphone access was denied.");
+      setError(t("microphoneDenied"));
     }
   }
 
@@ -79,7 +81,7 @@ export function VoiceStudio({
 
   async function submitVoiceProfile() {
     if (!clips.length) {
-      setError("Record at least one sample before creating a custom voice.");
+      setError(t("recordOneSample"));
       return;
     }
     setIsSubmitting(true);
@@ -104,34 +106,34 @@ export function VoiceStudio({
     <section className="voice-studio">
       <div className="voice-studio__header">
         <div>
-          <span className="field-label">Profile voice</span>
+          <span className="field-label">{t("profileVoice")}</span>
           <h3>{user.display_name}</h3>
           <p>
             {voiceProfile?.status === "ready"
-              ? `Custom voice ready: ${voiceProfile.voice_name}`
-              : "Record guided samples and create a custom voice for translated replies."}
+              ? t("customVoiceReady", { voiceName: voiceProfile.voice_name })
+              : t("recordGuidedSamples")}
           </p>
         </div>
         <div className="voice-studio__status">
-          {voiceProfile?.status === "ready" ? "Voice ready" : "No custom voice yet"}
+          {voiceProfile?.status === "ready" ? t("voiceReady") : t("noCustomVoice")}
         </div>
       </div>
 
       <div className="voice-studio__grid">
-        <LanguageSelect label="Script language" value={language} onChange={setLanguage} options={languageOptions} />
-        <LanguageSelect label="Voice gender" value={gender} onChange={setGender} options={genderOptions} />
+        <LanguageSelect label={t("scriptLanguage")} value={language} onChange={setLanguage} options={languageOptions} />
+        <LanguageSelect label={t("voiceGender")} value={gender} onChange={setGender} options={genderOptions} />
       </div>
 
       <div className="voice-studio__instructions">
-        <span className="field-label">Recording guide</span>
-        <p>{script?.instructions ?? "Loading script..."}</p>
-        <strong>{totalSeconds}s recorded / {script?.recommended_seconds ?? 120}s recommended</strong>
+        <span className="field-label">{t("recordingGuide")}</span>
+        <p>{script?.instructions ?? t("loadingScript")}</p>
+        <strong>{t("recordedRecommended", { seconds: totalSeconds, recommended: script?.recommended_seconds ?? 120 })}</strong>
       </div>
 
       <div className="voice-script">
         {(script?.passages ?? []).map((passage, index) => (
           <article key={index} className="voice-script__item">
-            <span className="copy-label">Passage {index + 1}</span>
+            <span className="copy-label">{t("passage", { index: index + 1 })}</span>
             <p>{passage}</p>
           </article>
         ))}
@@ -140,15 +142,15 @@ export function VoiceStudio({
       <div className="voice-studio__actions">
         {!isRecording ? (
           <button type="button" className="secondary" onClick={startRecording}>
-            Record sample
+            {t("recordSample")}
           </button>
         ) : (
           <button type="button" className="danger" onClick={stopRecording}>
-            Stop recording
+            {t("stopRecording")}
           </button>
         )}
         <button type="button" className="primary-cta" onClick={submitVoiceProfile} disabled={isSubmitting}>
-          {isSubmitting ? "Creating voice..." : "Create custom voice"}
+          {isSubmitting ? t("creatingVoice") : t("createCustomVoice")}
         </button>
       </div>
 
@@ -156,7 +158,7 @@ export function VoiceStudio({
         <div className="voice-clips">
           {clips.map((clip) => (
             <div key={clip.id} className="voice-clips__item">
-              <span>Sample</span>
+              <span>{t("sample")}</span>
               <strong>{clip.seconds}s</strong>
             </div>
           ))}

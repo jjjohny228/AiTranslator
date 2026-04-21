@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 function MicrophoneIcon() {
   return (
@@ -31,7 +32,8 @@ function StopIcon() {
   );
 }
 
-export function AudioControls({ onAudioReady, disabled = false, iconOnly = false }) {
+export function AudioControls({ onAudioReady, disabled = false, iconOnly = false, labels = {} }) {
+  const { t } = useTranslation();
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState("");
   const mediaRecorderRef = useRef(null);
@@ -67,7 +69,7 @@ export function AudioControls({ onAudioReady, disabled = false, iconOnly = false
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
     } catch (recordingError) {
-      setError("Microphone access was denied.");
+      setError(labels.microphoneDenied ?? t("microphoneDenied"));
     }
   }
 
@@ -85,20 +87,20 @@ export function AudioControls({ onAudioReady, disabled = false, iconOnly = false
             className={iconOnly ? "composer-icon-button" : "secondary"}
             onClick={startRecording}
             disabled={disabled}
-            aria-label="Record voice"
-            title="Record voice"
+            aria-label={labels.recordVoice ?? t("recordVoice")}
+            title={labels.recordVoice ?? t("recordVoice")}
           >
-            {iconOnly ? <MicrophoneIcon /> : "Record voice"}
+            {iconOnly ? <MicrophoneIcon /> : labels.recordVoice ?? t("recordVoice")}
           </button>
         ) : (
           <button
             type="button"
             className={iconOnly ? "composer-icon-button composer-icon-button--recording" : "danger"}
             onClick={stopRecording}
-            aria-label="Stop recording"
-            title="Stop recording"
+            aria-label={labels.stopRecording ?? t("stopVoiceRecording")}
+            title={labels.stopRecording ?? t("stopVoiceRecording")}
           >
-            {iconOnly ? <StopIcon /> : "Stop recording"}
+            {iconOnly ? <StopIcon /> : labels.stopRecording ?? t("stopVoiceRecording")}
           </button>
         )}
       </div>

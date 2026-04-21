@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioControls } from "./components/AudioControls";
 import { AudioPlayer } from "./components/AudioPlayer";
@@ -5,7 +6,10 @@ import { CondomBurst } from "./components/CondomBurst";
 import { HeroModel } from "./components/HeroModel";
 import { LanguageSelect } from "./components/LanguageSelect";
 import { RoomQrCode } from "./components/RoomQrCode";
+import { ToggleSwitch } from "./components/ToggleSwitch";
 import { VoiceStudio } from "./components/VoiceStudio";
+import { GENDER_VALUES, LANGUAGE_VALUES } from "./i18n/resources";
+import { resolveLocaleForLanguage, resolvePreferredLocale } from "./i18n/utils";
 import {
   base64ToAudioUrl,
   createRoom,
@@ -18,21 +22,6 @@ import {
   sendRoomTextMessage,
   updateRoomPreferences,
 } from "./lib/api";
-
-const languageOptions = [
-  { value: "English", label: "English" },
-  { value: "Ukrainian", label: "Ukrainian" },
-  { value: "Russian", label: "Russian" },
-  { value: "German", label: "German" },
-  { value: "Spanish", label: "Spanish" },
-  { value: "French", label: "French" },
-  { value: "Polish", label: "Polish" },
-];
-
-const genderOptions = [
-  { value: "male", label: "Male" },
-  { value: "female", label: "Female" },
-];
 
 function getRoomLink(roomId, role = "a") {
   if (!roomId) {
@@ -60,7 +49,7 @@ function createLocalMessageId() {
   return `${LOCAL_MESSAGE_PREFIX}${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createPendingMessage({ kind, speaker, source, target, originalText, attachmentName = null }) {
+function createPendingMessage({ kind, speaker, source, target, originalText, translatedText, attachmentName = null }) {
   return {
     id: createLocalMessageId(),
     kind,
@@ -70,7 +59,7 @@ function createPendingMessage({ kind, speaker, source, target, originalText, att
     source_language: source.language,
     target_language: target.language,
     original_text: originalText,
-    translated_text: "Translating...",
+    translated_text: translatedText,
     detected_source_language: source.language,
     status: "translating",
     audio_base64: null,
@@ -118,6 +107,9 @@ function mergeRoomStateWithPending(currentRoom, latestRoom) {
 }
 
 export default function App() {
+  const { t, i18n: i18nInstance } = useTranslation();
+  const browserLocale = useMemo(() => resolvePreferredLocale(), []);
+  const [preferredUiLanguage, setPreferredUiLanguage] = useState("auto");
   const [authReady, setAuthReady] = useState(false);
   const [authToken, setAuthToken] = useState("");
   const [authUser, setAuthUser] = useState(null);
@@ -129,6 +121,7 @@ export default function App() {
   });
   const [voiceProfile, setVoiceProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [viewerRole, setViewerRole] = useState("a");
   const [participants, setParticipants] = useState({
     a: { name: "You", language: "English", gender: "male" },
     b: { name: "Partner", language: "Ukrainian", gender: "female" },
@@ -152,6 +145,56 @@ export default function App() {
 
   const roomLink = useMemo(() => getRoomLink(room?.id, "a"), [room?.id]);
   const partnerInviteLink = useMemo(() => getRoomLink(room?.id, "b"), [room?.id]);
+  const autoLocale = room
+    ? resolveLocaleForLanguage(viewerRole === "b" ? room.participant_b.language : room.participant_a.language, browserLocale)
+    : authUser
+      ? resolveLocaleForLanguage(participants.a.language, browserLocale)
+      : browserLocale;
+  const locale = preferredUiLanguage === "auto"
+    ? autoLocale
+    : resolveLocaleForLanguage(preferredUiLanguage, browserLocale);
+
+  function localizeLanguage(language) {
+    return t(`languages.${language}`, { defaultValue: language });
+  }
+
+  function localizeGender(gender) {
+    return t(`genders.${gender}`, { defaultValue: gender });
+  }
+
+  const interfaceLanguageOptions = useMemo(
+    () => [
+      { value: "auto", label: t("automaticRoomLanguage") },
+      ...LANGUAGE_VALUES.map((value) => ({ value, label: localizeLanguage(value) })),
+    ],
+    [t, locale],
+  );
+
+  const languageOptions = useMemo(
+    () => LANGUAGE_VALUES.map((value) => ({ value, label: localizeLanguage(value) })),
+    [locale],
+  );
+  const genderOptions = useMemo(
+    () => GENDER_VALUES.map((value) => ({ value, label: localizeGender(value) })),
+    [locale],
+  );
+
+  useEffect(() => {
+    const storedUiLanguage = window.localStorage.getItem("smash_translator_ui_language");
+    if (storedUiLanguage) {
+      setPreferredUiLanguage(storedUiLanguage);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("smash_translator_ui_language", preferredUiLanguage);
+  }, [preferredUiLanguage]);
+
+  useEffect(() => {
+    if (i18nInstance.resolvedLanguage !== locale) {
+      void i18nInstance.changeLanguage(locale);
+    }
+  }, [i18nInstance, locale]);
 
   useEffect(() => {
     async function bootstrapAuth() {
@@ -218,6 +261,9 @@ export default function App() {
         });
         if (role === "a" || role === "b") {
           setActiveSpeaker(role);
+          setViewerRole(role);
+        } else {
+          setViewerRole("a");
         }
         setMode(nextRoom.mode);
         setSynthesizeResponses(nextRoom.synthesize_responses);
@@ -279,6 +325,7 @@ export default function App() {
       });
       const normalized = normalizeRoom(nextRoom);
       setRoom(normalized);
+      setViewerRole("a");
       const nextLink = getRoomLink(normalized.id, "b");
       window.history.replaceState({}, "", `?room=${normalized.id}&role=a`);
       if (nextLink) {
@@ -322,11 +369,11 @@ export default function App() {
 
   async function sendTextMessage() {
     if (!room?.id) {
-      setError("Create a room first.");
+      setError(t("createRoomFirst"));
       return;
     }
     if (!draft.trim()) {
-      setError("Write a message before sending.");
+      setError(t("writeMessageBeforeSending"));
       return;
     }
 
@@ -340,6 +387,7 @@ export default function App() {
       source,
       target,
       originalText: text,
+      translatedText: t("translatingMessage"),
     });
     setDraft("");
     setRoom((current) =>
@@ -384,7 +432,7 @@ export default function App() {
                   ? {
                       ...message,
                       status: "error",
-                      translated_text: "Translation failed.",
+                      translated_text: t("translationFailed"),
                       error_detail: requestError.message,
                     }
                   : message,
@@ -421,7 +469,7 @@ export default function App() {
 
   async function sendAudioMessage(file) {
     if (!room?.id) {
-      setError("Create a room first.");
+      setError(t("createRoomFirst"));
       return;
     }
     setIsSubmittingAudio(true);
@@ -432,7 +480,8 @@ export default function App() {
       speaker: activeSpeaker,
       source,
       target,
-      originalText: "Transcribing voice message...",
+      originalText: t("transcribingVoiceMessage"),
+      translatedText: t("translatingMessage"),
       attachmentName: file.name || "Voice note",
     });
     setRoom((current) =>
@@ -474,7 +523,7 @@ export default function App() {
                   ? {
                       ...message,
                       status: "error",
-                      translated_text: "Translation failed.",
+                      translated_text: t("translationFailed"),
                       error_detail: requestError.message,
                     }
                   : message,
@@ -491,8 +540,7 @@ export default function App() {
   function renderMessage(message) {
     const speaker = message.speaker === "a" ? room.participant_a : room.participant_b;
     const target = message.speaker === "a" ? room.participant_b : room.participant_a;
-
-    const statusLabel = message.status === "translating" ? "Translating" : message.status;
+    const statusLabel = message.status === "translating" ? t("translating") : message.status;
 
     return (
       <article
@@ -504,7 +552,10 @@ export default function App() {
             <div>
               <strong>{speaker.name}</strong>
               <span>
-                {speaker.language} to {target.language}
+                {t("languagePair", {
+                  source: localizeLanguage(speaker.language),
+                  target: localizeLanguage(target.language),
+                })}
               </span>
             </div>
             {message.status !== "done" ? (
@@ -517,11 +568,11 @@ export default function App() {
 
           <div className="message-copy">
             <div className="copy-block">
-              <span className="copy-label">Original</span>
+              <span className="copy-label">{t("original")}</span>
               <p>{message.original_text}</p>
             </div>
             <div className="copy-block copy-block--accent">
-              <span className="copy-label">Translated</span>
+              <span className="copy-label">{t("translated")}</span>
               <p>{message.translated_text}</p>
             </div>
           </div>
@@ -567,8 +618,8 @@ export default function App() {
         <CondomBurst />
         <main className="setup-shell">
           <section className="setup-hero">
-            <div className="eyebrow">Booting identity layer...</div>
-            <h1>Connecting your neon passport.</h1>
+            <div className="eyebrow">{t("bootIdentity")}</div>
+            <h1>{t("connectingPassport")}</h1>
           </section>
         </main>
       </>
@@ -581,8 +632,8 @@ export default function App() {
         <CondomBurst />
         <main className="setup-shell">
           <section className="setup-hero">
-            <div className="eyebrow">Preparing room...</div>
-            <h1>Opening your translation room.</h1>
+            <div className="eyebrow">{t("preparingRoom")}</div>
+            <h1>{t("openingRoom")}</h1>
           </section>
         </main>
       </>
@@ -596,19 +647,28 @@ export default function App() {
         <main className="setup-shell">
           <header className="chat-header">
             <div>
-              <div className="eyebrow">Profile</div>
+              <div className="eyebrow">{t("profile")}</div>
               <h2>{authUser.display_name || authUser.email}</h2>
-              <p>Manage your custom voice and translated speech settings.</p>
+              <p>{t("manageVoice")}</p>
             </div>
             <div className="header-actions">
               <button type="button" className="secondary" onClick={() => setShowProfile(false)}>
-                Back
+                {t("back")}
               </button>
               <button type="button" className="secondary" onClick={signOut}>
-                Sign out
+                {t("signOut")}
               </button>
             </div>
           </header>
+
+          <section className="setup-card setup-card--allow-overflow">
+            <LanguageSelect
+              label={t("interfaceLanguage")}
+              value={preferredUiLanguage}
+              onChange={setPreferredUiLanguage}
+              options={interfaceLanguageOptions}
+            />
+          </section>
 
           <VoiceStudio
             token={authToken}
@@ -630,15 +690,15 @@ export default function App() {
         <main className="chat-shell chat-shell--room">
           <header className="chat-header room-header">
             <div className="room-header__meta">
-              <div className="eyebrow">Room {room.id}</div>
+              <div className="eyebrow">{t("room")} {room.id}</div>
             </div>
             {canManageRooms ? (
               <div className="header-actions room-header__actions">
                 <button type="button" className="secondary" onClick={copyRoomLink}>
-                  Copy host link
+                  {t("copyHostLink")}
                 </button>
                 <button type="button" className="secondary" onClick={() => navigator.clipboard?.writeText(partnerInviteLink).catch(() => {})}>
-                  Copy invite link
+                  {t("copyInviteLink")}
                 </button>
                 <button
                   type="button"
@@ -649,7 +709,7 @@ export default function App() {
                     setError("");
                   }}
                 >
-                  Leave room
+                  {t("leaveRoom")}
                 </button>
                 <button
                   type="button"
@@ -660,7 +720,7 @@ export default function App() {
                     setError("");
                   }}
                 >
-                  New room
+                  {t("newRoom")}
                 </button>
               </div>
             ) : null}
@@ -669,7 +729,7 @@ export default function App() {
           <section className="chat-layout">
             <aside className="participants-panel">
               <div className="share-card">
-                <span className="field-label">Invite partner</span>
+                <span className="field-label">{t("invitePartner")}</span>
                 <RoomQrCode value={partnerInviteLink} />
                 <a className="room-link" href={partnerInviteLink}>
                   {partnerInviteLink}
@@ -677,29 +737,27 @@ export default function App() {
               </div>
 
               <div className="speaker-card speaker-card--summary">
-                <span className="speaker-tag">Participants</span>
+                <span className="speaker-tag">{t("participants")}</span>
                 <div className="speaker-summary-row">
                   <strong>{room.participant_a.name}</strong>
-                  <span>{room.participant_a.language}</span>
+                  <span>{localizeLanguage(room.participant_a.language)}</span>
                 </div>
                 <div className="speaker-summary-row">
                   <strong>{room.participant_b.name}</strong>
-                  <span>{room.participant_b.language}</span>
+                  <span>{localizeLanguage(room.participant_b.language)}</span>
                 </div>
               </div>
 
-              <div className="mode-card">
-                <span className="field-label">Room audio</span>
-                <label className="checkbox checkbox--inline">
-                  <input
-                    type="checkbox"
+              {canManageRooms ? (
+                <div className="mode-card">
+                  <span className="field-label">{t("roomAudio")}</span>
+                  <ToggleSwitch
+                    label={t("voiceRepliesInRoom")}
                     checked={synthesizeResponses}
-                    onChange={(event) => void syncRoomPreferences(mode, event.target.checked)}
-                    disabled={!canManageRooms}
+                    onChange={(value) => void syncRoomPreferences(mode, value)}
                   />
-                  Voice replies in this room
-                </label>
-              </div>
+                </div>
+              ) : null}
             </aside>
 
             <section className="conversation-panel">
@@ -708,7 +766,7 @@ export default function App() {
                   room.messages.map(renderMessage)
                 ) : (
                   <div className="timeline-note">
-                    <span>Room is ready. Share the link or QR and start talking.</span>
+                    <span>{t("roomReady")}</span>
                   </div>
                 )}
                 <div ref={streamEndRef} />
@@ -717,17 +775,20 @@ export default function App() {
               <div className="composer-card">
                 <div className="composer-topline">
                   <div className="composer-speaker-meta">
-                    <span className="field-label">Active speaker</span>
+                    <span className="field-label">{t("activeSpeaker")}</span>
                     <div className="composer-speaker-row">
                       <strong>
-                        {activeSpeakerMeta.name} speaking {activeSpeakerMeta.language}
+                        {t("speakingAs", {
+                          name: activeSpeakerMeta.name,
+                          language: localizeLanguage(activeSpeakerMeta.language),
+                        })}
                       </strong>
                       <button
                         type="button"
                         className={`composer-switch-button${isSwitchAnimating ? " composer-switch-button--animating" : ""}`}
                         onClick={handleSpeakerSwitch}
-                        aria-label="Switch active speaker"
-                        title="Switch active speaker"
+                        aria-label={t("switchActiveSpeaker")}
+                        title={t("switchActiveSpeaker")}
                       >
                         <img
                           src="/assets/switch-card.png"
@@ -737,15 +798,12 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <label className="checkbox checkbox--inline">
-                    <input
-                      type="checkbox"
-                      checked={autoPlayVoice}
-                      onChange={(event) => setAutoPlayVoice(event.target.checked)}
-                      disabled={!synthesizeResponses}
-                    />
-                    Auto-play voice for me
-                  </label>
+                  <ToggleSwitch
+                    label={t("autoPlayVoiceForMe")}
+                    checked={autoPlayVoice}
+                    onChange={setAutoPlayVoice}
+                    disabled={!synthesizeResponses}
+                  />
                 </div>
 
                 <div className="composer-inputbar">
@@ -754,14 +812,23 @@ export default function App() {
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={handleDraftKeyDown}
-                    placeholder={`Write what ${activeSpeakerMeta.name} wants to say...`}
+                    placeholder={t("writeWhatSays", { name: activeSpeakerMeta.name })}
                   />
                   {draft.trim() ? (
                     <button type="button" className="composer-send-button" onClick={sendTextMessage} disabled={busy}>
-                      {isSubmittingText ? "..." : "Send"}
+                      {isSubmittingText ? "..." : t("send")}
                     </button>
                   ) : (
-                    <AudioControls onAudioReady={sendAudioMessage} disabled={busy} iconOnly />
+                    <AudioControls
+                      onAudioReady={sendAudioMessage}
+                      disabled={busy}
+                      iconOnly
+                      labels={{
+                        recordVoice: t("recordVoice"),
+                        stopRecording: t("stopVoiceRecording"),
+                        microphoneDenied: t("microphoneDenied"),
+                      }}
+                    />
                   )}
                 </div>
 
@@ -774,35 +841,35 @@ export default function App() {
         <main className="setup-shell">
           <header className="chat-header room-setup-header">
             <div className="room-setup-header__copy">
-              <div className="eyebrow">Create room</div>
-              <h2>Set up your conversation</h2>
-              <p>Choose both speakers, languages, and audio behavior before you start.</p>
+              <div className="eyebrow">{t("createRoom")}</div>
+              <h2>{t("setupConversation")}</h2>
+              <p>{t("setupConversationBody")}</p>
             </div>
             <div className="header-actions room-setup-header__actions">
               <button type="button" className="secondary" onClick={() => setShowProfile(true)}>
-                Profile
+                {t("profile")}
               </button>
             </div>
           </header>
 
-          <section className="setup-card">
+          <section className="setup-card setup-card--allow-overflow">
             <div className="setup-grid">
               <div className="identity-card">
-                <span className="identity-kicker">Speaker A</span>
+                <span className="identity-kicker">{t("speakerA")}</span>
                 <input
                   className="name-input"
                   value={participants.a.name}
                   onChange={(event) => updateParticipant("a", "name", event.target.value)}
-                  placeholder="Your name"
+                  placeholder={t("yourName")}
                 />
                 <LanguageSelect
-                  label="Language"
+                  label={t("language")}
                   value={participants.a.language}
                   onChange={(value) => updateParticipant("a", "language", value)}
                   options={languageOptions}
                 />
                 <LanguageSelect
-                  label="Gender"
+                  label={t("gender")}
                   value={participants.a.gender}
                   onChange={(value) => updateParticipant("a", "gender", value)}
                   options={genderOptions}
@@ -810,21 +877,21 @@ export default function App() {
               </div>
 
               <div className="identity-card identity-card--contrast">
-                <span className="identity-kicker">Speaker B</span>
+                <span className="identity-kicker">{t("speakerB")}</span>
                 <input
                   className="name-input"
                   value={participants.b.name}
                   onChange={(event) => updateParticipant("b", "name", event.target.value)}
-                  placeholder="Partner name"
+                  placeholder={t("partnerName")}
                 />
                 <LanguageSelect
-                  label="Language"
+                  label={t("language")}
                   value={participants.b.language}
                   onChange={(value) => updateParticipant("b", "language", value)}
                   options={languageOptions}
                 />
                 <LanguageSelect
-                  label="Gender"
+                  label={t("gender")}
                   value={participants.b.gender}
                   onChange={(value) => updateParticipant("b", "gender", value)}
                   options={genderOptions}
@@ -834,28 +901,22 @@ export default function App() {
 
             <div className="setup-controls">
               <div className="toggle-stack">
-                <label className="checkbox checkbox--inline">
-                  <input
-                    type="checkbox"
-                    checked={synthesizeResponses}
-                    onChange={(event) => setSynthesizeResponses(event.target.checked)}
-                  />
-                  Generate spoken translated replies
-                </label>
-                <label className="checkbox checkbox--inline">
-                  <input
-                    type="checkbox"
-                    checked={autoPlayVoice}
-                    onChange={(event) => setAutoPlayVoice(event.target.checked)}
-                    disabled={!synthesizeResponses}
-                  />
-                  Auto-play translated audio on this device
-                </label>
+                <ToggleSwitch
+                  label={t("generateSpokenReplies")}
+                  checked={synthesizeResponses}
+                  onChange={setSynthesizeResponses}
+                />
+                <ToggleSwitch
+                  label={t("autoPlayTranslatedAudio")}
+                  checked={autoPlayVoice}
+                  onChange={setAutoPlayVoice}
+                  disabled={!synthesizeResponses}
+                />
               </div>
             </div>
 
             <button type="button" className="primary-cta room-setup-cta" onClick={handleCreateRoom} disabled={isCreatingRoom}>
-              {isCreatingRoom ? "Creating room..." : "Create room"}
+              {isCreatingRoom ? t("creatingRoom") : t("createRoom")}
             </button>
 
             {error ? <p className="error-banner">{error}</p> : null}
@@ -871,20 +932,27 @@ export default function App() {
             <HeroModel />
           </section>
 
-          <section className="setup-card auth-card">
+          <section className="setup-card setup-card--allow-overflow auth-card">
+            <LanguageSelect
+              label={t("interfaceLanguage")}
+              value={preferredUiLanguage}
+              onChange={setPreferredUiLanguage}
+              options={interfaceLanguageOptions}
+            />
+
             {authMode === "register" ? (
               <label className="field">
-                <span>Display name</span>
+                <span>{t("displayName")}</span>
                 <input
                   value={authForm.display_name}
                   onChange={(event) => setAuthForm((current) => ({ ...current, display_name: event.target.value }))}
-                  placeholder="Your public name"
+                  placeholder={t("yourPublicName")}
                 />
               </label>
             ) : null}
 
             <label className="field">
-              <span>Email</span>
+              <span>{t("email")}</span>
               <input
                 value={authForm.email}
                 onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
@@ -893,17 +961,17 @@ export default function App() {
             </label>
 
             <label className="field">
-              <span>Password</span>
+              <span>{t("password")}</span>
               <input
                 type="password"
                 value={authForm.password}
                 onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="Minimum 8 characters"
+                placeholder={t("minimumPassword")}
               />
             </label>
 
             <button type="button" className="primary-cta" onClick={submitAuth}>
-              {authMode === "login" ? "Sign in" : "Create account"}
+              {authMode === "login" ? t("signIn") : t("createAccount")}
             </button>
 
             <button
@@ -911,7 +979,7 @@ export default function App() {
               className="secondary"
               onClick={() => setAuthMode((current) => (current === "login" ? "register" : "login"))}
             >
-              {authMode === "login" ? "Need an account?" : "Already have an account?"}
+              {authMode === "login" ? t("needAccount") : t("alreadyHaveAccount")}
             </button>
 
             {error ? <p className="error-banner">{error}</p> : null}

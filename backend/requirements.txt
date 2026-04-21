@@ -7,4 +7,4 @@ langchain-openai==0.3.16
 openai==1.77.0
 httpx==0.28.1
 sqlalchemy==2.0.40
-psycopg[binary]==3.2.9
+psycopg[binary]==3.2.10

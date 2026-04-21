@@ -387,6 +387,10 @@ h2 {
   padding: 22px;
 }
 
+.setup-card--allow-overflow {
+  overflow: visible;
+}
+
 .auth-card {
   display: grid;
   gap: 14px;
@@ -708,12 +712,25 @@ h2 {
 
 .custom-select {
   position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.field:has(.custom-select--open) {
+  position: relative;
+  z-index: 40;
+}
+
+.custom-select--open {
+  z-index: 50;
 }
 
 .custom-select__trigger {
   width: 100%;
   min-height: 52px;
+  display: flex;
   justify-content: space-between;
+  align-items: center;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.45)),
     rgba(5, 0, 16, 0.94);
@@ -722,6 +739,10 @@ h2 {
   box-shadow:
     inset 0 0 0 2px rgba(255, 255, 255, 0.06),
     0 0 0 1px rgba(255, 0, 255, 0.16);
+}
+
+.custom-select__trigger > * {
+  transform: none;
 }
 
 .custom-select__trigger:hover {
@@ -736,22 +757,24 @@ h2 {
 }
 
 .custom-select__menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  display: grid;
+  width: 100%;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   padding: 8px;
-  max-height: min(320px, calc(100vh - 140px));
   overflow-y: auto;
   overscroll-behavior: contain;
   border: 2px solid var(--cyan);
   background: rgba(9, 0, 20, 0.98);
   box-shadow: 0 0 22px rgba(0, 255, 255, 0.24);
-  z-index: 20;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 255, 255, 0.55) rgba(255, 255, 255, 0.06);
+}
+
+.custom-select__menu--portal {
+  position: fixed;
+  z-index: 1200;
 }
 
 .custom-select__menu::-webkit-scrollbar {
@@ -770,11 +793,17 @@ h2 {
 .custom-select__option {
   width: 100%;
   min-height: 44px;
+  display: flex;
   justify-content: flex-start;
+  align-items: center;
   background: rgba(255, 255, 255, 0.03);
   border-color: transparent;
   color: var(--fg);
   box-shadow: none;
+}
+
+.custom-select__option > * {
+  transform: none;
 }
 
 .custom-select__option:hover,
@@ -1303,17 +1332,102 @@ h2 {
 }
 
 .checkbox {
+  display: grid;
   align-items: center;
+}
+
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: auto;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  color: var(--fg-soft);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.toggle-switch:hover {
+  transform: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.toggle-switch > * {
+  transform: none;
+}
+
+.toggle-switch:disabled {
+  opacity: 0.42;
+  transform: none;
+}
+
+.toggle-switch__label {
+  color: var(--fg-soft);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.toggle-switch__track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.06);
+  transition:
+    background 200ms linear,
+    border-color 200ms linear,
+    box-shadow 200ms linear;
+}
+
+.toggle-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(224, 224, 224, 0.92);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.12);
+  transition:
+    transform 200ms linear,
+    background 200ms linear,
+    box-shadow 200ms linear;
+}
+
+.toggle-switch--on .toggle-switch__track {
+  border-color: rgba(255, 0, 255, 0.42);
+  background: rgba(255, 0, 255, 0.16);
+  box-shadow: 0 0 14px rgba(255, 0, 255, 0.16);
+}
+
+.toggle-switch--on .toggle-switch__thumb {
+  transform: translateX(18px);
+  background: #f3a1ff;
+  box-shadow: 0 0 14px rgba(255, 0, 255, 0.28);
 }
 
 .checkbox input {
   width: 18px;
   height: 18px;
   accent-color: var(--pink);
+  margin: 0;
 }
 
 .checkbox--inline {
   grid-template-columns: 18px 1fr;
+  align-items: start;
+  column-gap: 10px;
+  line-height: 1.35;
 }
 
 .checkbox input:disabled {
@@ -1503,6 +1617,30 @@ h2 {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .composer-topline .checkbox--inline {
+    align-self: stretch;
+    grid-template-columns: 20px 1fr;
+    column-gap: 12px;
+  }
+
+  .composer-topline .checkbox input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .toggle-switch {
+    width: 100%;
+    min-height: 34px;
+  }
+
+  .toggle-switch__label {
+    font-size: 0.92rem;
+  }
+
+  .composer-topline .toggle-switch {
+    margin-top: 2px;
   }
 }
 

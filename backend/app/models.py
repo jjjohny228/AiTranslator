@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from sqlalchemy import Boolean, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,7 +15,7 @@ class User(Base):
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
     sessions: Mapped[list["SessionToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    voice_profile: Mapped["VoiceProfile | None"] = relationship(back_populates="user", cascade="all, delete-orphan")
+    voice_profile: Mapped["VoiceProfile"] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class SessionToken(Base):
@@ -79,10 +77,10 @@ class RoomMessageModel(Base):
     translated_text: Mapped[str] = mapped_column(Text, nullable=False)
     detected_source_language: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    audio_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    audio_mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    attachment_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_base64: Mapped[str] = mapped_column(Text, nullable=True)
+    audio_mime_type: Mapped[str] = mapped_column(String(128), nullable=True)
+    attachment_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    error_detail: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
     room: Mapped[Room] = relationship(back_populates="messages")
