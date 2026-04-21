@@ -22,6 +22,7 @@ class UserRecord:
     id: str
     email: str
     display_name: str
+    ui_language: str | None = None
 
 
 class AuthService:
@@ -42,7 +43,12 @@ class AuthService:
         except IntegrityError as exc:
             raise HTTPException(status_code=409, detail="User with this email already exists.") from exc
         token = self._create_session(user.id)
-        return token, UserResponse(id=user.id, email=user.email, display_name=user.display_name)
+        return token, UserResponse(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            ui_language=user.ui_language,
+        )
 
     def login(self, *, email: str, password: str) -> tuple[str, UserResponse]:
         with get_db_session() as session:
@@ -52,7 +58,12 @@ class AuthService:
         if not self._verify_password(password, user.password_salt, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid email or password.")
         token = self._create_session(user.id)
-        return token, UserResponse(id=user.id, email=user.email, display_name=user.display_name)
+        return token, UserResponse(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            ui_language=user.ui_language,
+        )
 
     def get_user_by_token(self, token: str) -> UserRecord:
         with get_db_session() as session:
@@ -60,7 +71,26 @@ class AuthService:
             if session_token is None or session_token.user is None:
                 raise HTTPException(status_code=401, detail="Authentication required.")
             user = session_token.user
-            return UserRecord(id=user.id, email=user.email, display_name=user.display_name)
+            return UserRecord(
+                id=user.id,
+                email=user.email,
+                display_name=user.display_name,
+                ui_language=user.ui_language,
+            )
+
+    def update_user_preferences(self, *, user_id: str, ui_language: str | None) -> UserResponse:
+        normalized_language = ui_language or None
+        with get_db_session() as session:
+            user = session.get(User, user_id)
+            if user is None:
+                raise HTTPException(status_code=404, detail="User not found.")
+            user.ui_language = normalized_language
+            return UserResponse(
+                id=user.id,
+                email=user.email,
+                display_name=user.display_name,
+                ui_language=user.ui_language,
+            )
 
     def save_voice_profile(
         self,

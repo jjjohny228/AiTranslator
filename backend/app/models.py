@@ -10,6 +10,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ui_language: Mapped[str] = mapped_column(String(64), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     password_salt: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)

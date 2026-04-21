@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
-from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserResponse
+from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserPreferencesUpdateRequest, UserResponse
 from app.schemas.profile import VoiceProfileResponse, VoiceScriptResponse
 from app.schemas.rooms import RoomCreateRequest, RoomState, RoomTextMessageRequest
 from app.core.config import get_settings
@@ -81,6 +81,18 @@ async def me(current_user: UserRecord = Depends(get_current_user)) -> UserRespon
         id=current_user.id,
         email=current_user.email,
         display_name=current_user.display_name,
+        ui_language=current_user.ui_language,
+    )
+
+
+@router.patch("/auth/me", response_model=UserResponse)
+async def update_me(
+    payload: UserPreferencesUpdateRequest,
+    current_user: UserRecord = Depends(get_current_user),
+) -> UserResponse:
+    return auth_service.update_user_preferences(
+        user_id=current_user.id,
+        ui_language=payload.ui_language,
     )
 
 

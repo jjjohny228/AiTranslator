@@ -16,6 +16,11 @@ class UserResponse(BaseModel):
     id: str
     email: str
     display_name: str
+    ui_language: str | None = None
+
+
+class UserPreferencesUpdateRequest(BaseModel):
+    ui_language: str | None = None
 
 
 class AuthResponse(BaseModel):

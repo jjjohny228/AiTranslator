@@ -20,6 +20,7 @@ import {
   register,
   sendRoomAudioMessage,
   sendRoomTextMessage,
+  updateMe,
   updateRoomPreferences,
 } from "./lib/api";
 
@@ -145,14 +146,15 @@ export default function App() {
 
   const roomLink = useMemo(() => getRoomLink(room?.id, "a"), [room?.id]);
   const partnerInviteLink = useMemo(() => getRoomLink(room?.id, "b"), [room?.id]);
+  const effectiveUiLanguage = authUser?.ui_language ?? preferredUiLanguage;
   const autoLocale = room
     ? resolveLocaleForLanguage(viewerRole === "b" ? room.participant_b.language : room.participant_a.language, browserLocale)
     : authUser
       ? resolveLocaleForLanguage(participants.a.language, browserLocale)
       : browserLocale;
-  const locale = preferredUiLanguage === "auto"
+  const locale = effectiveUiLanguage === "auto"
     ? autoLocale
-    : resolveLocaleForLanguage(preferredUiLanguage, browserLocale);
+    : resolveLocaleForLanguage(effectiveUiLanguage, browserLocale);
 
   function localizeLanguage(language) {
     return t(`languages.${language}`, { defaultValue: language });
@@ -187,8 +189,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("smash_translator_ui_language", preferredUiLanguage);
-  }, [preferredUiLanguage]);
+    const nextStoredValue = authUser?.ui_language ?? preferredUiLanguage;
+    window.localStorage.setItem("smash_translator_ui_language", nextStoredValue);
+  }, [authUser?.ui_language, preferredUiLanguage]);
 
   useEffect(() => {
     if (i18nInstance.resolvedLanguage !== locale) {
@@ -207,6 +210,7 @@ export default function App() {
         const user = await fetchMe(storedToken);
         setAuthToken(storedToken);
         setAuthUser(user);
+        setPreferredUiLanguage(user.ui_language ?? (window.localStorage.getItem("smash_translator_ui_language") || "auto"));
         const profile = await fetchVoiceProfile(storedToken);
         setVoiceProfile(profile);
       } catch {
@@ -597,6 +601,7 @@ export default function App() {
       window.localStorage.setItem("lingua_voice_token", response.token);
       setAuthToken(response.token);
       setAuthUser(response.user);
+      setPreferredUiLanguage(response.user.ui_language ?? preferredUiLanguage);
       const profile = await fetchVoiceProfile(response.token);
       setVoiceProfile(profile);
     } catch (requestError) {
@@ -610,6 +615,24 @@ export default function App() {
     setAuthUser(null);
     setVoiceProfile(null);
     setShowProfile(false);
+  }
+
+  async function handleUiLanguageChange(nextLanguage) {
+    setPreferredUiLanguage(nextLanguage);
+    setError("");
+
+    if (!authToken || !authUser) {
+      return;
+    }
+
+    try {
+      const updatedUser = await updateMe(authToken, {
+        ui_language: nextLanguage === "auto" ? null : nextLanguage,
+      });
+      setAuthUser(updatedUser);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   }
 
   if (!authReady) {
@@ -664,8 +687,8 @@ export default function App() {
           <section className="setup-card setup-card--allow-overflow">
             <LanguageSelect
               label={t("interfaceLanguage")}
-              value={preferredUiLanguage}
-              onChange={setPreferredUiLanguage}
+              value={effectiveUiLanguage}
+              onChange={(nextLanguage) => void handleUiLanguageChange(nextLanguage)}
               options={interfaceLanguageOptions}
             />
           </section>
@@ -935,8 +958,8 @@ export default function App() {
           <section className="setup-card setup-card--allow-overflow auth-card">
             <LanguageSelect
               label={t("interfaceLanguage")}
-              value={preferredUiLanguage}
-              onChange={setPreferredUiLanguage}
+              value={effectiveUiLanguage}
+              onChange={(nextLanguage) => void handleUiLanguageChange(nextLanguage)}
               options={interfaceLanguageOptions}
             />
 

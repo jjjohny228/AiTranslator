@@ -150,6 +150,23 @@ export async function fetchMe(token) {
   return parseResponse(response);
 }
 
+export async function updateMe(token, payload) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/auth/me`, {
+      method: "PATCH",
+      headers: {
+        ...withAuth({}, token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Cannot reach the backend API. Start FastAPI on port 8000 or set VITE_API_BASE_URL.");
+  }
+  return parseResponse(response);
+}
+
 export async function fetchVoiceProfile(token) {
   let response;
   try {
